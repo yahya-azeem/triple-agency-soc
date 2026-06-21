@@ -1,0 +1,45 @@
+---
+# Playbook to deploy the SOC Stack monitoring fabric and agent infrastructure
+
+- name: Deploy SIEM Elastic Stack
+  hosts: siem-server
+  become: yes
+  roles:
+    - role: elastic
+
+- name: Configure OPNsense virtual firewall
+  hosts: localhost
+  connection: local
+  roles:
+    - role: opnsense-config
+
+- name: Deploy SOAR Automation Stack (Shuffle)
+  hosts: secops-soar
+  become: yes
+  roles:
+    - role: shuffle
+
+- name: Automate Windows Domain Controller Promotion
+  hosts: ad-dc
+  roles:
+    - role: ad-setup
+
+- name: Deploy Network Visibility Collectors & Shippers
+  hosts: monitor-server
+  become: yes
+  roles:
+    - role: zeek
+    - role: suricata
+    - role: filebeat-shipper
+
+- name: Deploy Agents to Windows Nodes
+  hosts: windows_nodes
+  roles:
+    - role: sysmon
+    - role: wazuh-agent
+
+- name: Deploy Agents to Linux Nodes
+  hosts: linux_nodes
+  become: yes
+  roles:
+    - role: wazuh-agent

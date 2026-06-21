@@ -1,0 +1,12 @@
+---
+- name: Restart wazuh-agent
+  systemd:
+    name: wazuh-agent
+    state: restarted
+  when: ansible_os_family != 'Windows'
+
+- name: Restart wazuh-agent-win
+  win_service:
+    name: WazuhSvc
+    state: restarted
+  when: ansible_os_family == 'Windows'

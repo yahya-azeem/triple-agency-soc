@@ -1,0 +1,37 @@
+---
+# Sysmon Deployment for Windows Endpoints
+
+- name: Create Temp directory if not exists
+  win_file:
+    path: C:\Temp
+    state: directory
+
+- name: Download Sysmon zip from Sysinternals
+  win_get_url:
+    url: https://download.sysinternals.com/files/Sysmon.zip
+    dest: C:\Temp\Sysmon.zip
+
+- name: Expand Sysmon zip
+  win_unzip:
+    src: C:\Temp\Sysmon.zip
+    dest: C:\Temp\Sysmon
+    creates: C:\Temp\Sysmon\Sysmon64.exe
+
+- name: Copy Sysmon configuration file
+  win_copy:
+    src: sysmonconfig.xml
+    dest: C:\Temp\Sysmon\sysmonconfig.xml
+
+- name: Check if Sysmon service is installed
+  win_service:
+    name: Sysmon
+  register: sysmon_service_status
+  ignore_errors: yes
+
+- name: Install Sysmon with configuration
+  win_command: C:\Temp\Sysmon\Sysmon64.exe -accepteula -i C:\Temp\Sysmon\sysmonconfig.xml
+  when: sysmon_service_status.exists is not defined or not sysmon_service_status.exists
+
+- name: Update Sysmon configuration if already installed
+  win_command: C:\Temp\Sysmon\Sysmon64.exe -c C:\Temp\Sysmon\sysmonconfig.xml
+  when: sysmon_service_status.exists is defined and sysmon_service_status.exists

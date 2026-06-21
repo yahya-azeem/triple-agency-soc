@@ -1,0 +1,15 @@
+version: '3'
+
+services:
+  caldera:
+    image: calderaart/caldera:latest
+    container_name: caldera
+    ports:
+      - "8888:8888" # Web UI / API
+    volumes:
+      - ./conf:/usr/src/app/conf
+      - caldera_data:/usr/src/app/data
+    restart: unless-stopped
+
+volumes:
+  caldera_data:

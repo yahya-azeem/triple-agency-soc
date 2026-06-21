@@ -1,0 +1,35 @@
+---
+# CAT II Hardening Controls
+
+- name: Install libpam-pwquality
+  apt:
+    name: libpam-pwquality
+    state: present
+
+- name: Configure password complexity criteria
+  lineinfile:
+    path: /etc/security/pwquality.conf
+    regexp: "^{{ item.key }}"
+    line: "{{ item.key }} = {{ item.value }}"
+  loop:
+    - { key: 'minlen', value: '14' }
+    - { key: 'dcredit', value: '-1' }
+    - { key: 'ucredit', value: '-1' }
+    - { key: 'lcredit', value: '-1' }
+    - { key: 'ocredit', value: '-1' }
+
+- name: Configure local account lockouts after 3 failed attempts
+  lineinfile:
+    path: /etc/pam.d/common-auth
+    line: "auth required pam_faillock.so preauth silent audit deny=3 unlock_time=900"
+    insertbefore: "auth\t[success=1\tdefault=ignore]\tpam_unix.so"
+
+- name: Mask unused services to reduce attack surface
+  systemd:
+    name: "{{ item }}"
+    masked: yes
+    state: stopped
+  loop:
+    - bluetooth
+    - rpcbind
+  ignore_errors: yes

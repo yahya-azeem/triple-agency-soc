@@ -1,0 +1,36 @@
+{
+  "name": "Elastic Alert Auto-Quarantine VM",
+  "description": "Triggered by high-severity Elastic Security alerts. Parses host details and calls Proxmox API to isolate the VM.",
+  "workflow": [
+    {
+      "id": "webhook-trigger",
+      "type": "webhook",
+      "name": "Elastic Webhook Ingest",
+      "position": { "x": 100, "y": 100 },
+      "config": {
+        "path": "/elastic-alert",
+        "method": "POST"
+      }
+    },
+    {
+      "id": "parse-ioc",
+      "type": "code-executor",
+      "name": "Parse Host & VMID",
+      "position": { "x": 300, "y": 100 },
+      "config": {
+        "code": "def parse(alert):\n    host_name = alert.get('host', {}).get('name')\n    # In a production context, map hostname to VMID (e.g. windows-target -> 201)\n    vmid_map = {'windows-target': '201', 'linux-target': '200'}\n    return {\n        'vmid': vmid_map.get(host_name, 'unknown'),\n        'node': 'pve',\n        'severity': alert.get('kibana.alert.severity')\n    }"
+      },
+      "next": ["quarantine-action"]
+    },
+    {
+      "id": "quarantine-action",
+      "type": "ssh-executor",
+      "name": "Execute Quarantine VM Script",
+      "position": { "x": 500, "y": 100 },
+      "config": {
+        "host": "10.10.0.70",
+        "command": "/opt/soar/scripts/quarantine-vm.py {{parse-ioc.node}} {{parse-ioc.vmid}}"
+      }
+    }
+  ]
+}

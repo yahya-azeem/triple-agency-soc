@@ -1,0 +1,128 @@
+stages:
+  - validate
+  - provision
+  - configure
+  - compliance
+  - rules
+  - attack
+  - verify
+
+variables:
+  TF_ROOT: ${CI_PROJECT_DIR}/terraform
+  ANSIBLE_ROOT: ${CI_PROJECT_DIR}/ansible
+  DETECTIONS_ROOT: ${CI_PROJECT_DIR}/detections
+  THREAT_ROOT: ${CI_PROJECT_DIR}/threat-emulation
+  ELASTIC_URL: "https://10.10.0.50:9200"
+
+# --- VALIDATE STAGE ---
+validate:tf:
+  stage: validate
+  image: hashicorp/terraform:latest
+  script:
+    - cd ${TF_ROOT}
+    - terraform init -backend=false
+    - terraform fmt -check
+    - terraform validate
+
+validate:ansible:
+  stage: validate
+  image: python:3.10
+  script:
+    - pip install ansible ansible-lint
+    - cd ${ANSIBLE_ROOT}
+    - ansible-lint playbooks/*.yml
+
+validate:sigma:
+  stage: validate
+  image: python:3.10
+  script:
+    - pip install pyyaml
+    - ./detections/scripts/lint-rules.sh
+
+# --- PROVISION STAGE ---
+provision:infra:
+  stage: provision
+  image: hashicorp/terraform:latest
+  script:
+    - cd ${TF_ROOT}
+    - terraform init
+    - terraform apply -auto-approve
+  only:
+    - main
+
+# --- CONFIGURE STAGE ---
+configure:nodes:
+  stage: configure
+  image: python:3.10
+  script:
+    - pip install ansible
+    - cd ${ANSIBLE_ROOT}
+    - ansible-playbook playbooks/site.yml
+  only:
+    - main
+
+# --- COMPLIANCE STAGE ---
+compliance:stig:
+  stage: compliance
+  image: python:3.10
+  script:
+    - pip install ansible
+    - cd ${ANSIBLE_ROOT}
+    - ansible-playbook playbooks/hardening.yml
+  only:
+    - main
+
+# --- RULES STAGE ---
+rules:deploy:
+  stage: rules
+  image: python:3.10
+  script:
+    - pip install pyyaml
+    - python3 detections/scripts/sigma-to-elastic.py
+    - python3 detections/scripts/deploy-rules.py
+  only:
+    - main
+
+# --- ATTACK STAGE ---
+attack:emulation:
+  stage: attack
+  image: python:3.10
+  script:
+    # Trigger Caldera APT29 Emulation Operation via REST API
+    - |
+      curl -X POST -H "Content-Type: application/json" \
+        -d '{"index":"operations","name":"Automated_APT29_Emulation","adversary_id":"9a30740d-3aa8-4c23-8efa-d51215e8a5b9","state":"running","obfuscator":"base64","autonomous":"1"}' \
+        http://10.10.0.70:8888/api/rest
+  only:
+    - main
+
+# --- VERIFY STAGE ---
+verify:detections:
+  stage: verify
+  image: python:3.10
+  script:
+    # Query Elastic Security API to confirm that the expected alerts were generated
+    - |
+      python3 -c "
+      import urllib.request, json, os, ssl
+      ctx = ssl.create_default_context()
+      ctx.check_hostname = False
+      ctx.verify_mode = ssl.CERT_NONE
+      req = urllib.request.Request(
+          'https://10.10.0.50:9200/.alerts-security.alerts-*/_search?q=signal.rule.name:*APT29*',
+          headers={'Authorization': 'ApiKey ' + os.environ.get('ELASTIC_API_KEY', '')}
+      )
+      try:
+          with urllib.request.urlopen(req, context=ctx) as response:
+              res = json.loads(response.read().decode())
+              hits = res['hits']['total']['value']
+              print(f'Found {hits} detection events for simulated attacks.')
+              if hits == 0:
+                  print('[ERROR] Emulated attacks were not detected by the SIEM.')
+                  exit(1)
+      except Exception as e:
+          print('Connection to SIEM failed or API key invalid:', e)
+          exit(1)
+      "
+  only:
+    - main

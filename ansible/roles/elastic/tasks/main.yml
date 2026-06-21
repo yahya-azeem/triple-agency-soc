@@ -1,0 +1,80 @@
+---
+- name: Add Elastic repository GPG key
+  apt_key:
+    url: https://artifacts.elastic.co/GPG-KEY-elasticsearch
+    state: present
+
+- name: Add Elastic repository
+  apt_repository:
+    repo: "deb https://artifacts.elastic.co/packages/8.x/apt stable main"
+    state: present
+
+- name: Install Elasticsearch
+  apt:
+    name: elasticsearch
+    state: present
+    update_cache: yes
+
+- name: Install Kibana
+  apt:
+    name: kibana
+    state: present
+
+- name: Create certificate directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: elasticsearch
+    mode: '0750'
+  loop:
+    - /etc/elasticsearch/certs
+    - /etc/kibana/certs
+
+# Generate certificates via step-ca ACME provisioner for TLS (simulated)
+- name: Request certificates for Elasticsearch
+  shell: |
+    step ca certificate "elasticsearch.agency.internal" \
+      /etc/elasticsearch/certs/http.crt /etc/elasticsearch/certs/http.key \
+      --provisioner-password-file /etc/step-ca/password.txt \
+      --ca-url https://core-services.agency.internal:8443 \
+      --root /etc/step-ca/root_ca.crt
+  ignore_errors: yes
+
+- name: Set permissions on certs
+  file:
+    path: /etc/elasticsearch/certs/http.key
+    owner: root
+    group: elasticsearch
+    mode: '0640'
+  ignore_errors: yes
+
+- name: Copy Elasticsearch configuration
+  template:
+    src: elasticsearch.yml.j2
+    dest: /etc/elasticsearch/elasticsearch.yml
+    owner: root
+    group: elasticsearch
+    mode: '0660'
+  notify: Restart elasticsearch
+
+- name: Copy Kibana configuration
+  template:
+    src: kibana.yml.j2
+    dest: /etc/kibana/kibana.yml
+    owner: root
+    group: kibana
+    mode: '0660'
+  notify: Restart kibana
+
+- name: Start Elasticsearch
+  systemd:
+    name: elasticsearch
+    state: started
+    enabled: yes
+
+- name: Start Kibana
+  systemd:
+    name: kibana
+    state: started
+    enabled: yes

@@ -1,0 +1,24 @@
+title: Active Directory Golden Ticket Detection
+id: f45e6274-1234-4567-89ab-cdef01234567
+status: experimental
+description: Detects golden ticket usage by identifying Kerberos TGS requests with RC4 encryption (0x17) and long ticket lifetimes.
+references:
+  - https://attack.mitre.org/techniques/T1558/001/
+author: Agency SOC Team
+date: 2026-06-19
+logsource:
+  product: windows
+  service: security
+detection:
+  selection_evt:
+    EventID: 4769 # A Kerberos service ticket was requested
+  selection_fields:
+    TicketEncryptionType: '0x17' # RC4-HMAC (commonly used in Golden Tickets for evasion/older compatibility)
+    TicketTicketLifetime: '0x2a300' # Lifetime larger than 10 hours (172800 seconds / 48 hours or more)
+  condition: selection_evt and selection_fields
+falsepositives:
+  - Legacy applications using RC4 encryption and custom long-lived service accounts (should be whitelisted).
+level: high
+tags:
+  - attack.credential_access
+  - attack.t1558.001

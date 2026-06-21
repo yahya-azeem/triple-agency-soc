@@ -1,0 +1,32 @@
+title: Linux Sudoers Abuse Detection
+id: a937dcbe-3333-4444-5555-666677778888
+status: experimental
+description: Detects modification of sudoers files or execution of sudo with dangerous command-line flags.
+references:
+  - https://attack.mitre.org/techniques/T1548/003/
+author: Agency SOC Team
+date: 2026-06-19
+logsource:
+  product: linux
+  service: syslog
+detection:
+  selection_file:
+    # Look for edits to sudoers configurations
+    CommandLine|contains:
+      - 'vi /etc/sudoers'
+      - 'nano /etc/sudoers'
+      - 'visudo'
+      - 'echo '
+  selection_sudo_execution:
+    # Dangerous flags attempting privilege escalation
+    CommandLine|contains:
+      - 'sudo -i'
+      - 'sudo -s'
+      - 'sudo su'
+  condition: selection_file or selection_sudo_execution
+falsepositives:
+  - System administrators performing routine maintenance.
+level: medium
+tags:
+  - attack.privilege_escalation
+  - attack.t1548.003

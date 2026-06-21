@@ -1,0 +1,25 @@
+title: AS-REP Roasting Detection
+id: bd8976de-9999-4444-8888-abcdefabcdef
+status: experimental
+description: Detects AS-REP Roasting attempts by identifying Kerberos Authentication Service requests (Event 4768) where pre-authentication was not required (PreAuthType=0).
+references:
+  - https://attack.mitre.org/techniques/T1558/004/
+author: Agency SOC Team
+date: 2026-06-19
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    EventID: 4768
+    PreAuthType: '0' # Pre-authentication was disabled/not used
+    ResultCode: '0x0' # Success (implies a ticket was returned without pre-auth)
+  filter:
+    TargetUserName|endswith: '$'
+  condition: selection and not filter
+falsepositives:
+  - Misconfigured third-party applications using custom Kerberos modules that disable pre-auth.
+level: high
+tags:
+  - attack.credential_access
+  - attack.t1558.004

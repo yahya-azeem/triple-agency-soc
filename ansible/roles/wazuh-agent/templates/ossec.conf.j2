@@ -1,0 +1,62 @@
+<ossec_config>
+  <client>
+    <server>
+      <address>10.10.0.50</address>
+      <port>1514</port>
+      <protocol>tcp</protocol>
+    </server>
+    <config-profile>{{ ansible_distribution | lower }}, {{ ansible_distribution_major_version }}</config-profile>
+    <notify_time>10</notify_time>
+    <time-reconnect>60</time-reconnect>
+    <auto_restart>yes</auto_restart>
+    <crypto_method>aes</crypto_method>
+  </client>
+
+  <!-- File Integrity Monitoring -->
+  <syscheck>
+    <disabled>no</disabled>
+    <frequency>43200</frequency>
+    
+    {% if ansible_os_family == 'Windows' %}
+    <!-- Windows directories to monitor -->
+    <directories check_all="yes" realtime="yes">C:\Windows\System32\drivers\etc</directories>
+    <directories check_all="yes" realtime="yes">C:\Windows\System32\wbem</directories>
+    <directories check_all="yes" realtime="yes">C:\Windows\System32\WindowsPowerShell\v1.0</directories>
+    {% else %}
+    <!-- Linux directories to monitor -->
+    <directories check_all="yes" realtime="yes">/etc,/bin,/sbin</directories>
+    <directories check_all="yes" realtime="yes">/usr/bin,/usr/sbin</directories>
+    <directories check_all="yes" realtime="yes">/boot</directories>
+    {% endif %}
+  </syscheck>
+
+  <!-- Log analysis -->
+  <localfile>
+    <log_format>journald</log_format>
+    <location>journald</location>
+  </localfile>
+
+  {% if ansible_os_family == 'Windows' %}
+  <localfile>
+    <log_format>eventchannel</log_format>
+    <location>Microsoft-Windows-Sysmon/Operational</location>
+  </localfile>
+  <localfile>
+    <log_format>eventchannel</log_format>
+    <location>Security</location>
+  </localfile>
+  {% else %}
+  <localfile>
+    <log_format>syslog</log_format>
+    <location>/var/log/auth.log</location>
+  </localfile>
+  <localfile>
+    <log_format>syslog</log_format>
+    <location>/var/log/syslog</location>
+  </localfile>
+  <localfile>
+    <log_format>audit</log_format>
+    <location>/var/log/audit/audit.log</location>
+  </localfile>
+  {% endif %}
+</ossec_config>

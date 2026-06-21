@@ -1,0 +1,31 @@
+# Remove any existing rules
+-D
+
+# Buffer size to prevent dropped logs
+-b 8192
+
+# Failure mode (1 = print rate-limit warning, 2 = kernel panic)
+-f 1
+
+# Monitor system calls (Process executions)
+-a always,exit -F arch=b64 -S execve -k audit_exec
+
+# Monitor file changes to secure files
+-w /etc/shadow -p wa -k shadow_changes
+-w /etc/passwd -p wa -k passwd_changes
+-w /etc/sudoers -p wa -k sudo_changes
+-w /etc/sudoers.d/ -p wa -k sudo_changes
+-w /etc/ssh/sshd_config -p wa -k sshd_changes
+
+# Monitor Privilege Escalation
+-a always,exit -F arch=b64 -S setuid -S setgid -k privilege_escalation
+
+# Monitor network configurations
+-w /etc/issue -p wa -k network_configs
+-w /etc/issue.net -p wa -k network_configs
+-w /etc/hosts -p wa -k network_configs
+-w /etc/network/ -p wa -k network_configs
+
+# Lock the configuration (Immutable rule -e 2)
+# Changes cannot be made without a reboot
+-e 2

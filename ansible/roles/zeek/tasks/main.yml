@@ -1,0 +1,37 @@
+---
+- name: Add Zeek repository GPG key
+  apt_key:
+    url: https://download.opensuse.org/repositories/security:zeek/xUbuntu_22.04/Release.key
+    state: present
+
+- name: Add Zeek repository
+  apt_repository:
+    repo: "deb http://download.opensuse.org/repositories/security:/zeek/xUbuntu_22.04/ /"
+    state: present
+
+- name: Install Zeek
+  apt:
+    name: zeek
+    state: present
+    update_cache: yes
+
+- name: Configure Zeek Node (passive monitoring interface)
+  copy:
+    content: |
+      [zeek]
+      type=standalone
+      host=localhost
+      interface=eth1
+    dest: /opt/zeek/etc/node.cfg
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Deploy cron job for Zeek log rotation
+  cron:
+    name: "Zeek maintenance"
+    minute: "*/5"
+    job: "/opt/zeek/bin/zeekctl cron"
+
+- name: Initialize Zeek control configuration
+  command: /opt/zeek/bin/zeekctl deploy

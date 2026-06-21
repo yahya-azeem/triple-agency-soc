@@ -1,0 +1,11 @@
+---
+# Master playbook orchestrating the entire SOC infrastructure deployment
+
+# 1. Deploy cryptographic PKI boundaries
+- import_playbook: pki.yml
+
+# 2. Hardening and compliance scans
+- import_playbook: hardening.yml
+
+# 3. Deploy SIEM, SOAR, Network Analyzers and Endpoint Agents
+- import_playbook: soc-stack.yml

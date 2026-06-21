@@ -1,0 +1,26 @@
+title: Linux Timestomp Detection
+id: bd67f920-5555-6666-7777-88889999aaaa
+status: experimental
+description: Detects modification of file timestamps using the touch command to evade timeline analysis.
+references:
+  - https://attack.mitre.org/techniques/T1070/006/
+author: Agency SOC Team
+date: 2026-06-19
+logsource:
+  product: linux
+  service: auditd
+detection:
+  selection:
+    # Executed commands indicating modification of time stamps
+    CommandLine|contains:
+      - 'touch -d'
+      - 'touch -r'
+      - 'touch --date'
+      - 'touch -t'
+  condition: selection
+falsepositives:
+  - Software installation scripts modifying target timestamps during extraction.
+level: medium
+tags:
+  - attack.defense_evasion
+  - attack.t1070.006

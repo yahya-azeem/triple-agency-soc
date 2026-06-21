@@ -1,0 +1,14 @@
+---
+- name: Install auditd
+  apt:
+    name: auditd
+    state: present
+
+- name: Deploy secure auditd rules
+  template:
+    src: auditd.rules.j2
+    dest: /etc/audit/rules.d/audit.rules
+    owner: root
+    group: root
+    mode: '0600'
+  notify: Restart auditd

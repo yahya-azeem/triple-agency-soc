@@ -1,0 +1,23 @@
+filebeat.inputs: []
+
+# Enable automatic module parsing
+filebeat.config.modules:
+  path: ${path.config}/modules.d/*.yml
+  reload.enabled: true
+
+setup.template.settings:
+  index.number_of_shards: 1
+
+# Output direct to Elastic SIEM cluster using mTLS
+output.elasticsearch:
+  hosts: ["https://10.10.0.50:9200"]
+  protocol: "https"
+  username: "elastic"
+  password: "${ELASTIC_PASSWORD}"
+  
+  # mTLS TLS settings
+  ssl.enabled: true
+  ssl.certificate_authorities: ["/etc/filebeat/certs/ca.crt"]
+  ssl.certificate: "/etc/filebeat/certs/filebeat.crt"
+  ssl.key: "/etc/filebeat/certs/filebeat.key"
+  ssl.verification_mode: "certificate"

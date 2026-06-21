@@ -1,0 +1,42 @@
+---
+# OPNsense Virtual Firewall API-based configuration tasks
+
+- name: Create Network Interface Aliases
+  community.opnsense.firewall_alias:
+    auth_username: "{{ opnsense_api_key }}"
+    auth_password: "{{ opnsense_api_secret }}"
+    name: "{{ item.name }}"
+    type: host
+    content: "{{ item.ip }}"
+    description: "{{ item.desc }}"
+  loop:
+    - { name: 'SIEM_SERVER', ip: '10.10.0.50', desc: 'SIEM aggregation node' }
+    - { name: 'JUMPBOX', ip: '10.10.0.10', desc: 'OOB Jumpbox' }
+    - { name: 'ACTIVE_DIRECTORY_DC', ip: '10.10.10.100', desc: 'Windows Domain Controller' }
+
+- name: Configure Tier 3 Sandbox isolation firewall rule
+  community.opnsense.firewall_rule:
+    auth_username: "{{ opnsense_api_key }}"
+    auth_password: "{{ opnsense_api_secret }}"
+    action: block
+    interface: opt4 # Tier 3 sandbox interface mapping
+    direction: in
+    ipprotocol: inet
+    protocol: any
+    src: any
+    dst: "10.10.0.0/16" # Block accessing all internal tiers
+    description: "Sandbox Isolation: Block Tier 3 communication to other internal subnets"
+
+- name: Allow out-of-band management access from Jumpbox only
+  community.opnsense.firewall_rule:
+    auth_username: "{{ opnsense_api_key }}"
+    auth_password: "{{ opnsense_api_secret }}"
+    action: pass
+    interface: opt1 # Tier 0 management interface
+    direction: in
+    ipprotocol: inet
+    protocol: tcp
+    src: JUMPBOX
+    dst: SIEM_SERVER
+    dstport: "9200"
+    description: "Allow Jumpbox to query SIEM index on Tier 0"

@@ -1,0 +1,83 @@
+---
+# Wazuh Agent Installation & Setup
+
+- name: Install Wazuh Agent on Debian/Ubuntu Linux
+  block:
+    - name: Import Wazuh GPG key
+      apt_key:
+        url: https://packages.wazuh.com/key/GPG-KEY-WAZUH
+        state: present
+
+    - name: Add Wazuh APT repository
+      apt_repository:
+        repo: "deb https://packages.wazuh.com/4.x/apt/ stable main"
+        state: present
+
+    - name: Install Wazuh Agent
+      apt:
+        name: wazuh-agent
+        state: present
+        update_cache: yes
+
+    - name: Deploy Wazuh configuration (Linux)
+      template:
+        src: ossec.conf.j2
+        dest: /var/ossec/etc/ossec.conf
+        owner: root
+        group: wazuh
+        mode: '0660'
+      notify: Restart wazuh-agent
+
+    - name: Enable and start Wazuh Agent
+      systemd:
+        name: wazuh-agent
+        state: started
+        enabled: yes
+  when: ansible_os_family != 'Windows' and ansible_os_family != 'Alpine'
+
+- name: Deploy Containerized Wazuh Agent on Alpine Linux
+  block:
+    - name: Install Docker on Alpine
+      apk:
+        name: docker,docker-cli
+        state: present
+
+    - name: Enable and start Docker service
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Deploy Wazuh Agent Docker Container
+      docker_container:
+        name: wazuh-agent
+        image: wazuh/wazuh-agent:latest
+        state: started
+        restart_policy: always
+        env:
+          WAZUH_MANAGER: "10.10.0.50"
+        volumes:
+          - /var/run/docker.sock:/var/run/docker.sock
+          - /var/log:/var/log:ro
+          - /etc:/etc:ro
+  when: ansible_os_family == 'Alpine'
+
+- name: Install Wazuh Agent on Windows
+  block:
+    - name: Download Wazuh Agent MSI installer
+      win_get_url:
+        url: https://packages.wazuh.com/4.x/windows/wazuh-agent-4.4.5-1.msi
+        dest: C:\Temp\wazuh-agent.msi
+
+    - name: Install Wazuh Agent (MSI)
+      win_package:
+        path: C:\Temp\wazuh-agent.msi
+        arguments: 'ADDRESS="10.10.0.50" AUTOCONF_ACTIVE="1" /q'
+        state: present
+
+    - name: Deploy Wazuh configuration (Windows)
+      win_template:
+        src: ossec.conf.j2
+        dest: 'C:\Program Files (x86)\ossec-agent\ossec.conf'
+      notify: Restart wazuh-agent-win
+  when: ansible_os_family == 'Windows'

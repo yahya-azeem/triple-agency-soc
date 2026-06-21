@@ -1,0 +1,636 @@
+Architecting an Elite Security Operations Center Infrastructure: A Portfolio-Grade Defense-in-Depth Environment
+
+The contemporary cyber threat landscape demands environments that move fundamentally beyond conventional, flat-network consumer setups. Constructing a Security Operations Center (SOC) infrastructure that mirrors the rigorous architectural standards of a tier-one financial institution or a high-level intelligence agency necessitates the adoption of Zero Trust Architecture (ZTA), Cryptographic Segmentation, and Air-Gapped Simulated Threat Environments. To withstand, analyze, and contain advanced persistent threats (APTs) executed by elite adversaries, the underlying infrastructure must transition from manually configured graphical user interfaces to strictly managed, programmatically deployed codebases.
+
+This comprehensive blueprint details the design and deployment of a portfolio-grade infrastructure. By leveraging Infrastructure as Code (IaC), Software-Defined Networking (SDN), continuous compliance validation, Detection as Code (DaC), and automated adversary emulation, the resulting environment provides a highly resilient, observable, and isolated platform capable of withstanding the most sophisticated cyber operations.
+The Physical and Logical Network Topology
+
+The foundation of any high-security architecture is its network topology. A single perimeter router running flat Virtual Local Area Networks (VLANs) fundamentally violates the principles of modern network segmentation and fails to impress engineering leadership at premier organizations. Instead, the architecture must implement a Dual-Firewall DMZ-in-Depth topology, coupled with a distributed, software-defined overlay network to provide absolute isolation and granular traffic inspection capabilities.
+Dual-Firewall Architecture and Strict Micro-Segmentation
+
+The perimeter boundary requires absolute isolation between the enterprise laboratory and external internet traffic. This is achieved by deploying an outer hardware firewall, such as OPNsense or pfSense, which acts as the edge router handling primary Network Address Translation (NAT) and wide-area network (WAN) filtering. Behind this edge appliance, a virtualized inner firewall—such as a Palo Alto VM-Series or a FortiGate VM—enforces strict micro-segmentation and Deep Packet Inspection (DPI) between the internal functional zones.
+
+Logical isolation is enforced through a strict tiering model. This model ensures that a compromise within a lower-trust zone cannot be leveraged to horizontally pivot into management or core infrastructure segments.
+Network Tier	Designation	Function and Strict Access Controls
+Tier 0	Management / Out-of-Band	Hosts Proxmox/ESXi hypervisor management interfaces, switch management, and CI/CD runners. Strictly isolated with no internet access allowed. Ingress is limited to dedicated jump boxes via mutual TLS.
+Tier 1	Core Infrastructure	Hosts Active Directory Domain Controllers, DNS, NTP, and Enterprise Certificate Authorities (CA). Only specific, authenticated traffic is permitted to cross into Tier 1 from lower tiers.
+Tier 2	Production Workloads	Hosts Windows/Linux endpoints, application servers, and databases. Regulated outbound access; monitored heavily for lateral movement and behavioral anomalies.
+Tier 3	The Sandbox / Dirty WAN	An isolated detonation zone hosting high-interaction honeypots and threat emulation targets. Traffic attempting to cross from Tier 3 to any other tier is dropped instantly.
+Proxmox Software-Defined Networking (SDN) and EVPN Overlays
+
+To orchestrate this segmentation programmatically across a hypervisor cluster, the architecture utilizes the Proxmox Virtual Environment (VE) SDN stack. The Proxmox SDN stack allows for the separation and fine-grained control of virtual guest networks using flexible, software-controlled configurations.  
+
+While simple VLANs are standard, enterprise-grade environments heavily utilize Ethernet Virtual Private Networks (EVPN) over Virtual Extensible LAN (VXLAN) tunnels to enable multi-tenancy and highly scalable Layer 2 and Layer 3 overlay networks. EVPN creates a routable Layer 3 network capable of spanning multiple physical nodes by establishing a VPN and utilizing the Border Gateway Protocol (BGP) as the control plane routing protocol.  
+
+By employing Free Range Routing (FRR) as the BGP backend, Proxmox nodes explicitly share Media Access Control (MAC) and IP address information, entirely bypassing the inefficient multicast "flood and learn" mechanisms historically associated with VXLAN. This EVPN-VXLAN architecture acts as a massive distributed switch, allowing a virtual machine to retain the exact same default gateway IP regardless of its physical host location via Anycast Gateways.  
+
+The implementation of EVPN dictates the installation of the FRR daemon across all hypervisor nodes and the configuration of a BGP controller within the datacenter options, peering the nodes in a full mesh configuration utilizing a private Autonomous System Number (ASN). Furthermore, administrators must account for VXLAN encapsulation overhead—typically 50 bytes—by ensuring the underlying physical network supports Jumbo Frames (MTU 9000) or by explicitly tuning the internal virtual MTU to 1450 to prevent packet fragmentation and insidious TCP stalls.  
+
+A critical consideration within this setup involves the Linux kernel's Reverse Path Filtering (rp_filter). By default, the kernel treats VXLAN-encapsulated traffic arriving on Virtual Routing and Forwarding (VRF) bridge interfaces as spoofed if the return path differs from the ingress path, silently dropping the packets. Consequently, establishing highly available, Equal-Cost Multi-Path (ECMP) routing into the SDN requires manual sysctl modifications via the command-line interface to relax strict filtering.  
+Enterprise Hypervisor and Infrastructure Provisioning
+
+Agencies and elite financial institutions operate exclusively on strictly managed, provisioned infrastructure. Virtual machines must never be configured manually. Instead, the architecture relies on a DevSecOps pipeline to build, mutate, and destroy the laboratory programmatically.
+Compute Architecture and Hardware-Level Encryption
+
+The compute foundation utilizes Proxmox VE or VMware ESXi. To counter sophisticated memory-scraping attacks and hypervisor escapes, the hardware selected for the compute nodes must support hardware-level encryption capabilities. Enabling features such as AMD Secure Memory Encryption (SME), AMD Secure Encrypted Virtualization (SEV), or Intel Software Guard Extensions (SGX) ensures that the memory spaces of individual virtual machines are cryptographically isolated from the hypervisor itself, providing a confidential computing boundary essential for processing highly classified threat intelligence.
+Infrastructure as Code (IaC) via Terraform and OpenTofu
+
+To provision the virtualized infrastructure, Terraform or OpenTofu is utilized in conjunction with the high-performance bpg/proxmox provider. Unlike legacy community providers, the bpg provider offers native support for modern API features, SDN orchestration, and advanced resource mappings.  
+
+The provider interacts with the hypervisor API via dedicated tokens rather than root credentials, strictly adhering to the principle of least privilege. Creating a dedicated role with precisely scoped privileges—such as VM.Allocate, Datastore.AllocateTemplate, and SDN.Use—ensures the Terraform automation account cannot inadvertently compromise the underlying host configuration or storage arrays.  
+
+The provisioning workflow relies exclusively on cloud-init for immutable infrastructure generation. Base templates are generated programmatically, pre-configured with the QEMU guest agent, and cloned by Terraform.  
+
+By leveraging the provider's native SDN resources (proxmox_virtual_environment_sdn_zone_evpn and proxmox_virtual_environment_sdn_vnet), the entire network topology—including EVPN zones, virtual networks (VNets), subnets, and integrated DHCP ranges via dnsmasq—is instantiated purely from declarative code. Utilizing Terraform modules for the SDN stack allows the architecture to operate in a host-routed mode where Proxmox owns the gateway IPs, NAT masquerading, and DHCP orchestration, ensuring the entire network layout can be destroyed and identically rebuilt in minutes.  
+
+To prevent the hypervisor API from becoming overwhelmed during bulk provisioning, parallelism limits (-parallelism=5) must be enforced during execution. Strict lifecycle blocks (ignore_changes) must also be applied to dynamic variables, such as generated MAC addresses or dynamically injected cloud-init SSH keys, to prevent Terraform from detecting erroneous configuration drift.  
+Cryptographic Segmentation and Public Key Infrastructure (PKI)
+
+A hallmark of Zero Trust Architecture is the absolute refusal of implicit trust, even within the most deeply nested internal network perimeters. All internal traffic, including API calls, log shipping, and management interfaces, must be encrypted and mutually authenticated. Self-signed certificates generated on the fly or cleartext HTTP traffic are entirely unacceptable.
+Architecting the Certificate Authority Hierarchy
+
+The cryptographic foundation of the environment is built upon HashiCorp Vault, Smallstep's Step-CA, and Microsoft Active Directory Certificate Services (AD CS). HashiCorp Vault serves as the central secrets engine and the Offline Root CA. Vault's PKI secrets engine automates the generation of private keys, handles Certificate Signing Requests (CSRs), and issues short-lived intermediate certificates.  
+
+To manage bidirectional certificate relationships at scale and ensure endpoints can seamlessly authenticate, Step-CA or AD CS is deployed as an online Issuing CA. Step-CA provides native support for the Automated Certificate Management Environment (ACME) protocol, allowing internal workloads to provision and renew certificates just as they would from Let's Encrypt, but entirely within the private, air-gapped domain.  
+
+By adding an ACME provisioner to the Step-CA configuration, the environment enables automated certificate lifecycle management. A single instance of Step-CA can host multiple ACME provisioners, serving dedicated endpoints for different infrastructure tiers.  
+Implementing Mutual TLS (mTLS)
+
+With the enterprise PKI established, mutual TLS (mTLS) is forcefully applied across all infrastructure communication lines. In an mTLS exchange, both the client and the server must present valid certificates that chain back to a trusted Certificate Authority before a TLS handshake is finalized. This cryptographic boundary ensures that an unauthorized rogue device plugged into an internal VLAN cannot communicate with critical services, as the network connection will be rejected prior to application-level authentication.  
+
+For containerized microservices within the lab, Kubernetes cert-manager is integrated directly with the Step-CA ACME endpoint. cert-manager utilizes External Account Binding (EAB) to securely associate the internal Kubernetes cluster with the Step-CA provisioner, automatically requesting and rotating X.509 certificates for ingress controllers and internal pods. To preserve the end-to-end mTLS chain, SSL passthrough must be enabled on ingress controllers so that the original client certificate reaches the internal service unmodified for cryptographic validation.  
+Baseline Configuration and Automated Hardening
+
+An unhardened operating system is highly susceptible to trivial exploitation, rendering advanced detection mechanisms moot. Elite architectures mandate strict adherence to established security baselines, utilizing the Center for Internet Security (CIS) Benchmarks or the Defense Information Systems Agency (DISA) Security Technical Implementation Guides (STIGs).  
+Continuous Compliance via OpenSCAP and Ansible
+
+Applying hundreds of STIG controls manually across a fleet of endpoints is computationally unfeasible and highly prone to error. Configuration management must be driven programmatically by Ansible, transforming security baselines into automated, version-controlled playbooks.  
+
+The hardening process integrates the Security Content Automation Protocol (SCAP) using the OpenSCAP toolset. OpenSCAP performs automated vulnerability checking and compliance scanning against machine-readable Extensible Configuration Checklist Description Format (XCCDF) profiles.  
+
+The automated remediation pipeline operates in a continuous, closed-loop sequence:
+
+    Initial Evaluation: The oscap xccdf eval command executes against the DISA STIG profile, outputting an XML report detailing exact compliance failures.  
+
+    Playbook Generation: The OpenSCAP command-line utility ingests the specific Result ID from the scan and dynamically generates a tailored Ansible playbook containing only the necessary remediation tasks, ignoring rules that already pass.  
+
+    Dry-Run Validation: The generated playbook is executed in Ansible's check mode (--check --diff) to preview structural modifications without mutating the host state.  
+
+    Remediation Application: Ansible applies the configuration changes across the target inventory.
+
+    Verification Scan: A secondary OpenSCAP scan verifies that the previously failing controls now register as fully compliant.  
+
+Designing the Ansible STIG Role
+
+When engineering the underlying Ansible STIG role, tasks must be categorically grouped by their operational impact and severity level.
+STIG Severity	Impact Definition	Automation Strategy
+CAT I	Critical risk. Vulnerabilities that grant immediate, privileged access to an attacker.	
+
+Automated enforcement. Includes disabling SSH root login, enforcing strong ciphers, and optionally enabling NIST FIPS-validated cryptography.
+CAT II	High risk. Deficiencies in access control, auditing, or network configuration.	
+
+Heavily automated. Includes auditd rule deployment, PAM password complexity enforcement, account lockout configurations, and masking unused attack-surface services (e.g., rpcbind, bluetooth).
+CAT III	Medium risk. Best practices and defense-in-depth controls.	
+
+Automated where applicable, though some controls may require organizational policy exemptions depending on application constraints.
+ 
+
+A critical component of the Ansible playbook involves the implementation of strict immutability within the logging architecture. For instance, when deploying auditd rules via Jinja2 templates, appending the -e 2 flag at the absolute end of the ruleset locks the configuration in the kernel, making it immutable until the next system reboot. This explicitly prevents an attacker who has gained elevated privileges from dynamically altering the audit daemon to cover their tracks.  
+
+Furthermore, tasks that modify highly sensitive daemon configurations—such as the SSH service—must utilize the validate parameter in Ansible (e.g., validate: 'sshd -t -f %s'). This ensures that if the automation inadvertently introduces a syntax error, the configuration is immediately rolled back, preventing the orchestrator from locking out out-of-band administrative access. Any STIG modifications requiring kernel parameter changes or the initialization of FIPS mode must be handled carefully, utilizing Ansible handlers to trigger automated reboots upon task completion.  
+The Visibility Fabric and Log Aggregation
+
+A bank-level SOC requires total visibility. If an endpoint executes a command or an anomalous network connection is established, the central analytics engine must index it within seconds. To analyze advanced persistent threats, the architecture requires comprehensive telemetry capturing host-level process execution, memory access, and deep network-level packet flows.
+The Core SOC Component Matrix
+
+To achieve this total visibility, the following components constitute the SOC core fabric:
+Component	Portfolio Recommendation	Purpose / Function
+Log Shipper	Wazuh Agent & Elastic Agent	Collects local OS logs, system events, and integrity metrics securely over mTLS.
+Endpoint Auditing	Sysmon (Windows) & Auditd (Linux)	Captures deep telemetry including process creation, network connections, and memory access patterns.
+Network Visibility	Zeek & Suricata	Zeek acts as a highly customizable protocol analyzer; Suricata processes packet signatures for IDS/IPS functions.
+SIEM & Data Lake	Elastic Security (ELK) or Splunk Enterprise	Ingests, normalizes, indexes, and correlates all security telemetry into actionable intelligence.
+SOAR Automation	Shuffle or Tines	Triggers automated workflows (e.g., parsing JSON alerts, auto-isolating an infected VM via hypervisor API calls).
+Virtual TAPs and Port Mirroring in Proxmox
+
+In physical data centers, Network TAPs or Switch Port Analyzer (SPAN) ports duplicate traffic and forward it to an Intrusion Detection System. Replicating this capability in a virtualized hypervisor requires configuring a virtual distributed switch (vDS) or manipulating the underlying Linux bridge and TAP interfaces that Proxmox dynamically generates.  
+
+When a virtual machine is provisioned, Proxmox creates a localized TAP interface. If the Proxmox firewall is enabled at the VM level, it generates supplementary firewall bridges (fwbr) and interfaces to handle iptables filtering. Because standard Linux bridges utilize MAC address learning, unicast traffic flowing between two virtual machines on the same bridge is never flooded to a third monitoring port.  
+
+To successfully mirror inter-VLAN network traffic directly through Zeek and Suricata, the Proxmox firewall must be disabled on the target interfaces, and the bridge must be forced into a "hub" mode by completely disabling MAC address learning. This is achieved by setting the bridge aging parameter to zero (bridge_ageing 0) and disabling the Spanning Tree Protocol (bridge_stp off) within the Proxmox host's /etc/network/interfaces configuration. This mechanism forces the virtual bridge to perpetually flood all traversing packets to the monitoring interface, enabling comprehensive out-of-band packet capture for the inspection engines.  
+Deep Packet Inspection via eBPF
+
+With the virtual SPAN port operational, raw traffic is routed into Zeek and Suricata. Zeek generates structured, connection-level logs that provide deep context into DNS queries, HTTP headers, and SSL/TLS handshakes without the storage overhead of retaining raw PCAPs. Simultaneously, Suricata operates as a signature-based intrusion detection system, matching network payloads against known threat intelligence rules.  
+
+To optimize packet processing performance without consuming excessive hypervisor CPU cycles, Suricata must be configured to leverage the Extended Berkeley Packet Filter (eBPF) and AF_PACKET memory mapping. eBPF enables in-kernel, high-speed packet processing, effectively bypassing the standard, resource-intensive network stack overhead, ensuring that multi-gigabit traffic flows are analyzed without latency or dropped packets.  
+Detection as Code (DaC) and Automated Response
+
+Managing hundreds of detection rules manually within a SIEM's graphical interface inevitably leads to version control conflicts, an inability to audit changes, and severe false-positive fatigue. Elite operations adopt Detection as Code (DaC)—a methodology that applies strict software development lifecycle (SDLC) practices to security engineering, bringing predictability to threat hunting.  
+The CI/CD Pipeline for Detections
+
+Under the DaC paradigm, all detection rules are authored in a standardized, platform-agnostic format, such as Sigma, and stored in a Version Control System (VCS) like GitHub or GitLab.  
+
+The lifecycle of a detection rule operates entirely through an automated CI/CD pipeline:
+
+    Development: A detection engineer writes a new Sigma rule identifying a specific adversarial behavior, organizing it within the repository structure.  
+
+    Pull Request and Validation: The rule is submitted via a pull request. A CI/CD runner automatically executes linting tools (such as runreveal lint) to validate the YAML syntax and verify that required schema fields match the underlying logging architecture.  
+
+    Automated Testing: The pipeline queries the SIEM against known threat simulation datasets. If the rule fails to trigger on the test data (expecting an exit code 1) or falsely triggers on clean baseline data, the build fails instantly, and the merge into production is blocked.  
+
+    Deployment: Upon passing validation and receiving peer review approval, the rule is programmatically compiled into the SIEM's native query language (e.g., Elasticsearch KQL) and deployed to the data lake via API.  
+
+Security Orchestration, Automation, and Response (SOAR)
+
+Once deployed, detections that successfully trigger an alert do not simply generate a passive email. Instead, they are routed via webhooks to a SOAR platform, such as Tines or Shuffle. The SOAR platform automates the initial triage workflow dynamically.  
+
+For example, when an alert payload is received, the SOAR workflow parses the JSON telemetry, extracts key indicators of compromise (IOCs), and automatically generates a structured GitHub Issue or Jira ticket containing the parsed intelligence for the incident response team. If the confidence level of the detection is absolute, the SOAR platform executes API calls back to the inner firewall or the hypervisor to dynamically quarantine the infected VM by shifting it into the isolated Tier 3 Detonation VLAN, neutralizing the threat instantaneously without human intervention.  
+Threat Emulation, Honeypots, and Continuous Validation
+
+An empty lab is a useless lab. A SOC infrastructure cannot be proven effective until it is actively and persistently attacked. Continuous Security Validation (CSV) shifts the defensive posture from reactive monitoring to proactive verification by systematically executing real-world adversarial techniques against the environment, thereby validating that the DaC pipeline functions as intended.  
+Advanced Threat Emulation via MITRE Caldera
+
+MITRE Caldera is deployed on a dedicated command-and-control (C2) server within the environment to automate complex attack chains aligned directly with the MITRE ATT&CK framework. Caldera operates on an autonomous agent-based architecture; Sandcat agents are deployed onto the Tier 2 Windows and Linux endpoints, beaconing back to the Caldera core server over encrypted channels.  
+
+Caldera's true operational power resides in its REST API, which allows the overarching CI/CD pipeline to programmatically trigger attack operations during integration testing. An "ability" in Caldera is defined in YAML and contains the specific execution command, target platforms, and requisite payloads.  
+
+By authenticating to the /api/rest endpoint, the infrastructure can trigger a continuous, automated Advanced Persistent Threat (APT) emulation:
+JSON
+
+{
+  "index": "operations",
+  "name": "Automated_APT29_Emulation",
+  "adversary_id": "9a30740d-3aa8-4c23-8efa-d51215e8a5b9",
+  "state": "running",
+  "obfuscator": "base64",
+  "autonomous": "1"
+}
+
+This API-driven operation directs the Sandcat agent to execute lateral movement, privilege escalation, or exfiltration payloads. The resulting endpoint telemetry is captured by Sysmon, shipped by the Wazuh agent, indexed in Elastic, and evaluated by the Sigma rules deployed via the DaC pipeline. If the SOAR platform receives the alert, the attack is verified as "Detected." If no alert is fired, a critical detection gap is registered, prompting an immediate update to the repository.
+Atomic Red Team and Active Directory Flaws
+
+For highly granular, technique-specific testing outside of complex attack chains, the architecture integrates Atomic Red Team. Maintained by the open-source community, Atomic Red Team provides a library of modular tests that map directly to individual ATT&CK techniques, requiring minimal setup to execute within five minutes. Using the Invoke-AtomicRedTeam execution framework, individual telemetry pipelines can be isolated and validated across multiple operating systems.  
+
+To augment the threat environment, deliberate vulnerabilities are introduced to challenge the SIEM correlation logic. Active Directory misconfigurations—such as Kerberoasting vulnerabilities, AS-REP roasting exposures, and intentionally weak Access Control Lists (ACLs)—are generated en masse using tools like BadBlood.
+
+Simultaneously, enterprise honeypots are scattered throughout the architecture. Thinkst Canary tokens are embedded in file shares, while the T-Pot multi-honeypot platform is deployed within a DMZ. Analysts can monitor how the SIEM correlates an external attack attempting to brute-force a fake database alongside lateral movement indicators detected by Sysmon, ensuring the correlation engine identifies multi-stage campaigns accurately.
+Orchestrating the Ecosystem: The Unified CI/CD Pipeline
+
+To achieve an enterprise-grade standard, the deployment, configuration, and validation of the entire infrastructure must be orchestrated through a unified CI/CD pipeline, utilizing platforms such as GitLab CI/CD or GitHub Actions.  
+
+The pipeline seamlessly integrates Terraform and Ansible workflows into a singular sequence:
+
+    Validation Stage: Code commits trigger linting tasks; Terraform formatting is verified, and Ansible playbooks are checked for syntax and YAML compliance.  
+
+    Infrastructure Provisioning Stage (Terraform): Utilizing an HTTP backend to securely manage the Terraform state file, the pipeline executes the hypervisor provisioning. Terraform provisions the VMs, establishes the EVPN BGP network overlay, and configures the virtual SPAN ports.  
+
+    Configuration Stage (Ansible): Once the underlying compute and network layers exist, pipeline artifacts pass the dynamically generated IP inventory to Ansible. Ansible applies the OpenSCAP STIG remediations, provisions the Wazuh agents, configures Suricata, and distributes the Step-CA mTLS certificates.  
+
+    Validation Stage (Caldera): A post-deployment script makes REST API calls to the Caldera C2 server, launching simulated attacks against the freshly provisioned, fully hardened infrastructure.  
+
+    Verification Stage: The pipeline queries the SOAR platform to verify that the expected incident response alerts were successfully generated by the SIEM, definitively proving the environment's security posture is functional end-to-end.
+
+Documenting the Architecture for a Professional Portfolio
+
+An elite architecture holds minimal value if it cannot be communicated effectively to high-tier recruiters, principal engineers, or hiring managers. To showcase the capabilities of this environment, the design must be published as a clean, highly polished public repository on GitHub or GitLab.
+
+The documentation must eschew basic markdown readmes in favor of enterprise-grade technical writing. The repository should be structured as follows:
+
+    Architecture Diagram: A highly polished, professional topology diagram built using Draw.io or Lucidchart. The diagram must utilize standard Cisco, AWS, or Azure architecture icons, clearly delineating the Dual-Firewall perimeter, the Tier 0-3 strict VLAN isolation boundaries, the out-of-band management links, and the log shipping pathways into the SIEM.
+
+    The Codebases: The repository must include the raw .tf (Terraform) files demonstrating the Proxmox bpg provider and EVPN configurations, alongside the Ansible playbook YAML files showcasing the OpenSCAP STIG remediation logic. This repository acts as definitive proof of the ability to deploy secure architectures programmatically.
+
+    The Detection Engineering Case Study: The crown jewel of the portfolio is a short, deeply technical article documenting a specific attack simulation end-to-end. For example, documenting the execution of an adversarial Golden Ticket attack on the intentionally vulnerable Active Directory structure.
+
+The case study must meticulously detail the attack lifecycle: displaying the raw PowerShell command executed by Atomic Red Team, the raw JSON log subsequently captured by Sysmon indicating the anomalous Ticket Granting Ticket (TGT) request, the detection logic written as a Sigma or YARA rule, and the final automated alert dashboard generated by the Tines SOAR platform demonstrating the automated response.
+
+By providing this level of documentation, the infrastructure transcends a standard homelab and becomes undeniable proof of architectural mastery, demonstrating a nuanced understanding of zero trust, deep packet inspection, compliance automation, and adversarial emulation on par with premier enterprise organizations.
+pve.proxmox.com
+Software-Defined Network - Proxmox VE
+Opens in a new window
+harryvasanth.com
+Proxmox - Networking: Deep Dive into EVPN-VXLAN Control Planes and Multi-Tenant Isolation | Harry Vasanth
+Opens in a new window
+bennetgallein.de
+Setting Up EVPN on Proxmox SDN: A Comprehensive Guide - Bennet Gallein IT Solutions
+Opens in a new window
+forum.proxmox.com
+EVPN/SDN with BGP External Advertisement UI Limitations - Proxmox Support Forum
+Opens in a new window
+harryvasanth.com
+Proxmox - Terraform: Advanced Provider Tuning and State Management | Harry Vasanth
+Opens in a new window
+oneuptime.com
+How to Configure Proxmox Provider in Terraform - OneUptime
+Opens in a new window
+search.opentofu.org
+index - v0.45.1 - bpg/proxmox - OpenTofu Registry
+Opens in a new window
+trfore.com
+Opens in a new window
+github.com
+Terraform Modules for the BPG Proxmox Provider - GitHub
+Opens in a new window
+registry.terraform.io
+proxmox_virtual_environment_s
+Opens in a new window
+search.opentofu.org
+virtual_environment_sdn_subnet - bpg/proxmox - OpenTofu Registry
+Opens in a new window
+reddit.com
+Wrote a Terraform module for Proxmox SDN: zones, VNets, DHCP, and SNAT - Reddit
+Opens in a new window
+github.com
+hybridops-tech/terraform-proxmox-sdn - GitHub
+Opens in a new window
+docs.ansible.com
+community.hashi_vault.vault_pki_generate_certificate module – Generates a new set of credentials (private key and certificate) using HashiCorp Vault PKI - Ansible documentation
+Opens in a new window
+hashicorp.com
+X.509 certificate management with Vault - HashiCorp
+Opens in a new window
+oneuptime.com
+How to Configure cert-manager with Step-CA for Custom ACME Certificate Authority
+Opens in a new window
+smallstep.com
+Run your own private CA & ACME server using step-ca - Smallstep
+Opens in a new window
+smallstep.com
+Configure Certificate Provisioners in step-ca - Smallstep
+Opens in a new window
+hashicorp.com
+Mutual TLS (mTLS) for Vault: Strategic patterns with hands-on steps - HashiCorp
+Opens in a new window
+smallstep.com
+Kubernetes ACME CA Integration Tutorial - Smallstep
+Opens in a new window
+ansible-lockdown.readthedocs.io
+STIG Overview - Ansible Lockdown - Read the Docs
+Opens in a new window
+oneuptime.com
+How to Use Ansible to Run Security Compliance Scans - OneUptime
+Opens in a new window
+julianyates.com
+Ansible Playbook for DISA STIG Baseline Hardening on Linux - Technical Repository
+Opens in a new window
+open-scap.org
+Security Compliance | OpenSCAP portal
+Opens in a new window
+madeintandem.com
+Automating Security Compliance with Ansible: DevSecOps made Easy - Tandem
+Opens in a new window
+oneuptime.com
+How to Remediate OpenSCAP Findings with Ansible Playbooks on RHEL - OneUptime
+Opens in a new window
+countershell.com
+Monitoring traffic in a Proxmox environment - counterShell
+Opens in a new window
+docs.aws.amazon.com
+Work with open-source tools for traffic mirroring - Amazon Virtual Private Cloud
+Opens in a new window
+forum.suricata.io
+Suricata with passive optical TAP - Help
+Opens in a new window
+dl.ifip.org
+Design and Implementation of eBPF-based Virtual TAP for Inter-VM Traffic Monitoring - IFIP Digital Library
+Opens in a new window
+elastic.co
+The Engineer's Guide to Elastic Detections as Code — Elastic Security Labs
+Opens in a new window
+tines.com
+Automating Detection-as-Code - Tines
+Opens in a new window
+blog.runreveal.com
+Detection-As-Code CI/CD Pipeline Guide | RunReveal Blog
+Opens in a new window
+medium.com
+From soup to nuts: Building a Detection-as-Code pipeline | by David French (@threatpunter)
+Opens in a new window
+medium.com
+From soup to nuts: Building a Detection-as-Code pipeline | by David French (@threatpunter)
+Opens in a new window
+pentera.io
+What is Continuous Security Validation: Prove Your Defenses Work - Pentera
+Opens in a new window
+github.com
+apache/caldera: Automated Adversary Emulation Platform - GitHub
+Opens in a new window
+caldera.readthedocs.io
+Basic Usage - caldera documentation - Read the Docs
+Opens in a new window
+wazuh.com
+Adversary emulation with CALDERA and Wazuh
+Opens in a new window
+caldera.readthedocs.io
+The REST API - caldera documentation - Read the Docs
+Opens in a new window
+atomicredteam.io
+Atomic Red Team™
+Opens in a new window
+redcanary.com
+Test your defenses with Red Canary's Atomic Red Team
+Opens in a new window
+medium.com
+Building a Cybersecurity Home Lab — Part 5: Atomic Red Team Setup, Configuration, and Demo | by JBXSec | Medium
+Opens in a new window
+oneuptime.com
+How to Integrate Terraform and Ansible in CI/CD Pipelines - OneUptime
+Opens in a new window
+virtualizationhowto.com
+Automating Your Home Lab with Ansible, Terraform, and CI/CD Pipelines
+Opens in a new window
+docs.lucanoahcaprez.ch
+Proxmox VM Creation using Terraform and Gitlab Pipelines - LNC DOCS
+Opens in a new window
+medium.com
+Infrastructure as Code CI/CD using Terraform, Ansible and GitLab-CI | by Prince Ogabi
+Opens in a new window
+forum.proxmox.com
+API for SDN? Terraform? - Proxmox Support Forum
+Opens in a new window
+reddit.com
+Linux Ansible Hardening Customise - Reddit
+Opens in a new window
+public.cyber.mil
+Supplemental Automation Content - DoD Cyber Exchange
+Opens in a new window
+docs.redhat.com
+Red Hat Ansible Automation Platform hardening guide
+Opens in a new window
+github.com
+mitre/amazon-linux-2-ansible-hardening: DISA STIG for Amazon Linux 2 - GitHub
+Opens in a new window
+terryhowe.github.io
+hashivault_pki_ca_set – Hashicorp Vault PKI Submit CA Information — Ansible Documentation
+Opens in a new window
+developer.konghq.com
+HashiCorp Vault CA - Kong Mesh
+Opens in a new window
+github.com
+salrashid123/vault_pki_mtls: Using HashiCorp Vault's PKI Secrets engine for TLS - GitHub
+Opens in a new window
+sans.org
+Purple Team Exercise Framework for Continuous Security Validation - SANS Institute
+Opens in a new window
+meetup.com
+Dallas Hackers Association - Meetup
+Opens in a new window
+infosec.exchange
+Dallas Hackers Association (@dallas_hackers@infosec.exchange)
+Opens in a new window
+infosecmap.com
+BSides DFW (Dallas-Fort Worth) - InfoSecMap
+Opens in a new window
+infosecmap.com
+BSides DFW 2025 (Dallas-Fort Worth) - InfoSecMap
+Opens in a new window
+reddit.com
+Cybersecurity Events? : r/askdfw - Reddit
+Opens in a new window
+meetup.com
+Hackster Dallas - Meetup
+Opens in a new window
+registry.terraform.io
+proxmox_virtual_environment_s
+Opens in a new window
+labs.demoredhat.com
+Automated Smart Management Workshop: Configuring and performing an OpenSCAP Scan
+Opens in a new window
+galaxy.ansible.com
+trfore.smallstep - Ansible Galaxy
+Opens in a new window
+smallstep.com
+Deploy ACME RA with Certificate Manager - Smallstep
+Opens in a new window
+reddit.com
+Monitoring network traffic with Snort using port mirroring : r/Proxmox - Reddit
+Opens in a new window
+rgbwiki.com
+Tapping Proxmox VMs and LXCs - RGBwiki
+Opens in a new window
+rgbwiki.com
+Opens in a new window
+elastic.co
+Transform security with Elastic's Detections as Code — Adopting DaC made easy
+Opens in a new window
+github.com
+API Queries for Operations created via API return empty brackets · Issue #1577 · mitre/caldera - GitHub
+Opens in a new window
+github.com
+Exfiltration with curl on linux returns 500 · Issue #2786 · mitre/caldera - GitHub
+Opens in a new window
+github.com
+Execute Abilities Over REST API · apache caldera · Discussion #2215 - GitHub
+Opens in a new window
+codebase.helmholtz.cloud
+172946 / Proxmox-Automation-with-Terraform-and-Ansible · GitLab - Helmholtz Codebase
+Opens in a new window
+about.gitlab.com
+Build enterprise-grade IaC pipelines with GitLab DevSecOps
+Opens in a new window
+pve.proxmox.com
+Software-Defined Network - Proxmox VE
+Opens in a new window
+dynfi.com
+Complex Multi-Site Configurations with Proxmox L2VPN / EVPN / BGP - DynFi
+Opens in a new window
+forum.proxmox.com
+[TUTORIAL] - [Full mesh (routed setup) + EVPN] it is feasible even by using SDN!
+Opens in a new window
+Structuring the Ultimate Security Blueprint
+I am initiating a comprehensive design for an elite, enterprise-grade Security Operations Center (SOC) homelab blueprint, modeled after three-letter intelligence agency and tier-one financial institution architectures. To move beyond standard setups, I am structuring this design around strict zero-trust network topologies, multi-tier segmentation, automated infrastructure deployment using modern GitOps pipelines, and continuous security validation.
+Analyzing Key Technical Integrations
+I am synthesizing several complex integration points to ensure the homelab operates as a cohesive, automated ecosystem. This includes evaluating programmatic hypervisor deployments using infrastructure-as-code providers, mapping out continuous compliance via automated OS hardening benchmarks, and establishing a robust, automated internal PKI with mutual TLS. Additionally, I am designing a continuous security validation pipeline that pairs automated adversary emulation tools with SIEM detection and SOAR orchestration for automated threat response.
+Mapping Next Investigative Steps
+To build concrete, production-ready configurations rather than generic advice, I am proceeding to research specific implementation details. I will focus on gathering precise configuration patterns for software-defined networking, verified automated hardening roles, infrastructure-as-code deployment pipelines, and threat simulation integrations. I will also investigate the local Dallas-Fort Worth cybersecurity landscape to align this architecture with the practical hiring expectations of major regional banks, defense contractors, and enterprise security firms.
+oneuptime.com
+How to Configure Proxmox Provider in Terraform - OneUptime
+search.opentofu.org
+index - v0.45.1 - bpg/proxmox - OpenTofu Registry
+github.com
+Terraform Modules for the BPG Proxmox Provider - GitHub
+forum.proxmox.com
+API for SDN? Terraform? - Proxmox Support Forum
+trfore.com
+Provisioning Proxmox 8 VMs with Terraform and BPG - trfore
+harryvasanth.com
+Proxmox - Terraform: Advanced Provider Tuning and State Management | Harry Vasanth
+reddit.com
+Linux Ansible Hardening Customise - Reddit
+ansible-lockdown.readthedocs.io
+STIG Overview - Ansible Lockdown - Read the Docs
+julianyates.com
+Ansible Playbook for DISA STIG Baseline Hardening on Linux - Technical Repository
+public.cyber.mil
+Supplemental Automation Content - DoD Cyber Exchange
+docs.redhat.com
+Red Hat Ansible Automation Platform hardening guide
+github.com
+mitre/amazon-linux-2-ansible-hardening: DISA STIG for Amazon Linux 2 - GitHub
+terryhowe.github.io
+hashivault_pki_ca_set – Hashicorp Vault PKI Submit CA Information — Ansible Documentation
+docs.ansible.com
+community.hashi_vault.vault_pki_generate_certificate module – Generates a new set of credentials (private key and certificate) using HashiCorp Vault PKI - Ansible documentation
+hashicorp.com
+Mutual TLS (mTLS) for Vault: Strategic patterns with hands-on steps - HashiCorp
+developer.konghq.com
+HashiCorp Vault CA - Kong Mesh
+hashicorp.com
+X.509 certificate management with Vault - HashiCorp
+github.com
+salrashid123/vault_pki_mtls: Using HashiCorp Vault's PKI Secrets engine for TLS - GitHub
+atomicredteam.io
+Atomic Red Team™
+redcanary.com
+Test your defenses with Red Canary's Atomic Red Team
+github.com
+apache/caldera: Automated Adversary Emulation Platform - GitHub
+pentera.io
+What is Continuous Security Validation: Prove Your Defenses Work - Pentera
+sans.org
+Purple Team Exercise Framework for Continuous Security Validation - SANS Institute
+medium.com
+Building a Cybersecurity Home Lab — Part 5: Atomic Red Team Setup, Configuration, and Demo | by JBXSec | Medium
+meetup.com
+Dallas Hackers Association - Meetup
+infosec.exchange
+Dallas Hackers Association (@dallas_hackers@infosec.exchange)
+infosecmap.com
+BSides DFW (Dallas-Fort Worth) - InfoSecMap
+infosecmap.com
+BSides DFW 2025 (Dallas-Fort Worth) - InfoSecMap
+reddit.com
+Cybersecurity Events? : r/askdfw - Reddit
+meetup.com
+Hackster Dallas - Meetup
+Uncovering Enterprise Infrastructures
+In analyzing the technical capabilities of modern hypervisors, I synthesized how standard configurations are escalated to agency-grade environments. I discovered that utilizing advanced providers allows for complete Software-Defined Networking (SDN) configurations directly inside declarations, enabling virtual extensible LAN (VXLAN) and EVPN zones. This replaces manual bridging and establishes absolute cryptographic isolation between development, production, and security simulation networks.
+Hardening and Compliance Gaps
+I evaluated the integration of DISA STIG and CIS baselines using automation frameworks, bridging the gap between baseline OS installations and continuous compliance validation. Rather than running manual post-deployment configurations, I am mapping out how to embed compliance checking using open-source SCAP scanning tools directly into a GitOps pipeline. This resolves the problem of configuration drift by ensuring every system is scanned and verified automatically.
+Formulating Advanced System Controls
+Moving forward, I will search for specific configuration structures to implement programmatic mutual TLS (mTLS) utilizing automated certificate authority tools, and explore how to bind Software-Defined Network zones with passive network monitoring tools. This will allow me to design an automated pipeline that deploys, hardens, validates compliance, and initiates adversary simulations to verify detection coverage.
+pve.proxmox.com
+Software-Defined Network - Proxmox VE
+github.com
+hybridops-tech/terraform-proxmox-sdn - GitHub
+registry.terraform.io
+proxmox_virtual_environment_s
+registry.terraform.io
+proxmox_virtual_environment_s
+search.opentofu.org
+virtual_environment_sdn_subnet - bpg/proxmox - OpenTofu Registry
+reddit.com
+Wrote a Terraform module for Proxmox SDN: zones, VNets, DHCP, and SNAT - Reddit
+open-scap.org
+Security Compliance | OpenSCAP portal
+madeintandem.com
+Automating Security Compliance with Ansible: DevSecOps made Easy - Tandem
+oneuptime.com
+How to Use Ansible to Run Security Compliance Scans - OneUptime
+labs.demoredhat.com
+Automated Smart Management Workshop: Configuring and performing an OpenSCAP Scan
+oneuptime.com
+How to Remediate OpenSCAP Findings with Ansible Playbooks on RHEL - OneUptime
+smallstep.com
+Configure Certificate Provisioners in step-ca - Smallstep
+galaxy.ansible.com
+trfore.smallstep - Ansible Galaxy
+oneuptime.com
+How to Configure cert-manager with Step-CA for Custom ACME Certificate Authority
+smallstep.com
+Deploy ACME RA with Certificate Manager - Smallstep
+smallstep.com
+Kubernetes ACME CA Integration Tutorial - Smallstep
+smallstep.com
+Run your own private CA & ACME server using step-ca - Smallstep
+reddit.com
+Monitoring network traffic with Snort using port mirroring : r/Proxmox - Reddit
+countershell.com
+Monitoring traffic in a Proxmox environment - counterShell
+dl.ifip.org
+Design and Implementation of eBPF-based Virtual TAP for Inter-VM Traffic Monitoring - IFIP Digital Library
+forum.suricata.io
+Suricata with passive optical TAP - Help
+docs.aws.amazon.com
+Work with open-source tools for traffic mirroring - Amazon Virtual Private Cloud
+rgbwiki.com
+Tapping Proxmox VMs and LXCs - RGBwiki
+Uncovering High-Fidelity Network Mirroring Patterns
+I have successfully synthesized a highly robust approach for virtual port mirroring in Proxmox virtualized environments. While typical software-defined networking setups often struggle with dropped packets and missing directional flows, I've discovered two elegant, production-grade solutions: setting bridge ageing to zero on virtual interfaces to force packet flooding, and utilizing advanced Linux traffic control scripts to direct cloned VM traffic to virtual TAP adapters. This allows out-of-band monitoring tools like Zeek and Suricata to perform deep packet inspection without impacting routing performance or compromising security zones.
+Establishing Closed-Loop Compliance Pipelines
+I have mapped out a self-remediating compliance pipeline using OpenSCAP and Ansible. Rather than running manual audits, the system automatically executes vulnerability scans on target hosts, translates the failed rules into custom, targeted Ansible playbooks, runs them in check mode to ensure stability, and then applies the fixes. This closed-loop design ensures that virtual machine templates maintain compliance with strict regulatory frameworks like CIS Benchmarks or DISA STIGs before they are ever deployed to active environments.
+Integrating Automated Internal PKI with ACME
+I have evaluated the orchestration of a fully automated internal Public Key Infrastructure (PKI). By deploying a lightweight, open-source certificate authority using Smallstep and integrating its ACME provisioner with Kubernetes cert-manager or local system agents, we can achieve automated certificate issuance and rotation. This eliminates the operational overhead of managing internal certificates, enabling seamless, strict mutual TLS across all internal APIs, databases, and monitoring agents.
+Formulating the Technical Blueprint
+I am transitioning to formulate the final, detailed homelab architecture. I will compile concrete, production-ready configurations, including infrastructure-as-code files, pipeline structures, and specific commands for network virtualization, secure bootstrapping, and continuous adversary simulation. I am also factoring in regional hiring criteria for the Dallas-Fort Worth area to ensure the portfolio project is tailored to the exact requirements of top financial institutions and defense contractors in the region.
+rgbwiki.com
+oneuptime.com
+How to Remediate OpenSCAP Findings with Ansible Playbooks on ...
+countershell.com
+Monitoring traffic in a Proxmox environment — counterShell
+trfore.com
+Provisioning Proxmox 8 VMs with Terraform and BPG · trfore
+julianyates.com
+Ansible Playbook for DISA STIG Baseline Hardening on Linux ...
+Configuring Port Mirroring and Remediation Workflows
+I have successfully analyzed the precise mechanics required to establish native virtual network port mirroring in virtualization environments, synthesizing how raw network interfaces can be bound and isolated. By utilizing permanent configurations that disable MAC address learning on virtual bridges, I can force full traffic flooding to analyzer interfaces without complex auxiliary wrappers. Simultaneously, I resolved the exact execution sequence for continuous security compliance, mapping a closed-loop workflow that executes automated scans, extracts unique run identifiers, and compiles tailored Ansible playbooks to remediate only the specific findings that failed the initial evaluation.
+Structuring Enterprise Deployment Configurations
+I mapped out the exact structures for programmatically provisioning virtual machines using modern declarative templates, incorporating cloud-init configurations to pre-install hypervisor guest tools, update operating systems, and authorize secure keys on boot. Additionally, I synthesized the architecture for a variable-driven system hardening role, detailing critical task structures that utilize configurations for password complexities, file integrity auditing, filesystem restrictions, and system-wide cryptographic validation.
+Establishing Automated GitOps Pipelines
+To synthesize these individual components into a cohesive, self-healing architecture, I am moving forward to explore the specific code structures needed to bind them into a GitOps orchestration framework. I will research configuration templates for golden image pipelines that enforce compliance gates during the build process, programmatic software-defined routing using dynamic protocols, and automated adversary simulation triggers that execute known threat behaviors to validate continuous telemetry collection and security operations.
+elastic.co
+The Engineer's Guide to Elastic Detections as Code — Elastic Security Labs
+tines.com
+Automating Detection-as-Code - Tines
+blog.runreveal.com
+Detection-As-Code CI/CD Pipeline Guide | RunReveal Blog
+elastic.co
+Transform security with Elastic's Detections as Code — Adopting DaC made easy
+medium.com
+From soup to nuts: Building a Detection-as-Code pipeline | by David French (@threatpunter)
+medium.com
+From soup to nuts: Building a Detection-as-Code pipeline | by David French (@threatpunter)
+caldera.readthedocs.io
+Basic Usage - caldera documentation - Read the Docs
+github.com
+API Queries for Operations created via API return empty brackets · Issue #1577 · mitre/caldera - GitHub
+github.com
+Exfiltration with curl on linux returns 500 · Issue #2786 · mitre/caldera - GitHub
+caldera.readthedocs.io
+The REST API - caldera documentation - Read the Docs
+github.com
+Execute Abilities Over REST API · apache caldera · Discussion #2215 - GitHub
+wazuh.com
+Adversary emulation with CALDERA and Wazuh
+oneuptime.com
+How to Integrate Terraform and Ansible in CI/CD Pipelines - OneUptime
+codebase.helmholtz.cloud
+172946 / Proxmox-Automation-with-Terraform-and-Ansible · GitLab - Helmholtz Codebase
+docs.lucanoahcaprez.ch
+Proxmox VM Creation using Terraform and Gitlab Pipelines - LNC DOCS
+virtualizationhowto.com
+Automating Your Home Lab with Ansible, Terraform, and CI/CD Pipelines
+about.gitlab.com
+Build enterprise-grade IaC pipelines with GitLab DevSecOps
+medium.com
+Infrastructure as Code CI/CD using Terraform, Ansible and GitLab-CI | by Prince Ogabi
+pve.proxmox.com
+Software-Defined Network - Proxmox VE
+dynfi.com
+Complex Multi-Site Configurations with Proxmox L2VPN / EVPN / BGP - DynFi
+forum.proxmox.com
+EVPN/SDN with BGP External Advertisement UI Limitations - Proxmox Support Forum
+forum.proxmox.com
+[TUTORIAL] - [Full mesh (routed setup) + EVPN] it is feasible even by using SDN!
+harryvasanth.com
+Proxmox - Networking: Deep Dive into EVPN-VXLAN Control Planes and Multi-Tenant Isolation | Harry Vasanth
+bennetgallein.de
+Setting Up EVPN on Proxmox SDN: A Comprehensive Guide - Bennet Gallein IT Solutions
+Unifying Software-Defined Networks with Dynamic Routing
+I have synthesized the configuration patterns required to establish multi-tenant software-defined networks using advanced hypervisor overlays. By analyzing complex implementations of EVPN and VXLAN combined with BGP routing control planes, I uncovered how to dynamically distribute layer 2 and layer 3 routing tables between hypervisor hosts. Furthermore, I worked through the advanced routing limitations of these overlays, mapping out exactly how to inject custom configurations to allow virtual networks to safely import default routing parameters from the global hypervisor routing tables, creating a reliable and highly isolated infrastructure fabric.
+Automating Detection-as-Code and Response Pipelines
+I investigated the architectural integration of GitOps pipelines with modern security automation tools to treat security rules strictly as version-controlled software. Rather than applying detection rules manually, the pipeline automatically tests, validates, and deploys custom threat-detection schemas directly into centralized security solutions using programmatic application interfaces. By pairing this architecture with low-code orchestration webhooks, alerts can trigger instant, automated responses such as dynamically isolating compromised nodes by altering their software-defined network bridge connections.
+Formulating the Final Autonomous Validation Loop
+I am initiating the synthesis of the final technical blueprint, which ties together infrastructure automation, internal public key cryptography, automated hardening, and real-time adversary simulations. I will construct a comprehensive, multi-phase guide containing production-ready configuration definitions, pipeline workflows, and programmatic triggers. I am also detailing a strategic career alignment strategy targeted at the Dallas-Fort Worth technology and defense sectors, illustrating how to package this self-remediating ecosystem as a high-impact professional portfolio.
+The initial research has returned a lot of information. I'm sorting through it and organizing it. This will make sure the whole thing flows well and hits all the key points you asked for.
+This is it! I’m bringing it all together. Jotting down my final thoughts, polishing everything up, and making sure I give you my very best work.
+

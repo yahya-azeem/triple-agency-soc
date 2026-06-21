@@ -1,0 +1,12 @@
+---
+- name: Deploy and Configure PKI Infrastructure
+  hosts: core-services
+  become: yes
+  tasks:
+    - name: Run Vault role
+      include_role:
+        name: vault
+
+    - name: Run Step-CA role
+      include_role:
+        name: step-ca

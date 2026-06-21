@@ -1,0 +1,49 @@
+%yaml 1.1
+---
+
+vars:
+  address-groups:
+    HOME_NET: "[10.10.0.0/16]"
+    EXTERNAL_NET: "!$HOME_NET"
+
+default-log-dir: /var/log/suricata/
+
+# Configure outputs to EVE JSON format for SIEM ingestion
+outputs:
+  - eve-log:
+      enabled: yes
+      filetype: regular
+      filename: eve.json
+      types:
+        - alert:
+            payload: yes
+            payload-buffer-size: 4kb
+            payload-printable: yes
+            packet: yes
+            metadata: yes
+            http: yes
+            tls: yes
+        - http:
+            extended: yes
+        - dns:
+            query-status: yes
+        - tls:
+            extended: yes
+        - files:
+            force-magic: no
+        - flow
+
+# Configure AF_PACKET passive monitoring (with simulated eBPF processing)
+af-packet:
+  - interface: eth1
+    cluster-id: 99
+    cluster-type: cluster_flow
+    defrag: yes
+    use-mmap: yes
+    tpacket-v3: yes
+    ring-size: 2048
+
+# Standard rule path
+default-rule-path: /var/lib/suricata/rules
+rule-files:
+  - suricata.rules

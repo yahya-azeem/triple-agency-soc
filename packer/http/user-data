@@ -1,0 +1,34 @@
+#cloud-config
+autoinstall:
+  version: 1
+  identity:
+    hostname: ubuntu-golden
+    password: "$6$wd93s8Dk3e$e.oQhD4tS/C7KkGsk/tIq0s9oB/uD7J48hU5Q6uG4Q49G69e59Ksk9S/Gks928ShkE0Gk83SkK0Sks8e8Sks81" # hashed password for packerpassword123!
+    username: packer
+  keyboard:
+    layout: us
+  locale: en_US.UTF-8
+  network:
+    network:
+      version: 2
+      ethernets:
+        ens18:
+          dhcp4: true
+  storage:
+    layout:
+      name: direct
+  ssh:
+    install-server: true
+    authorized-keys: []
+    allow-pw: true
+  packages:
+    - qemu-guest-agent
+    - curl
+    - wget
+    - git
+    - sudo
+  user-data:
+    disable_root: false
+  late-commands:
+    - "echo 'packer ALL=(ALL) NOPASSWD:ALL' > /target/etc/sudoers.d/packer"
+    - "chmod 440 /target/etc/sudoers.d/packer"

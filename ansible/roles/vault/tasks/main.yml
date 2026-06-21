@@ -1,0 +1,96 @@
+---
+- name: Install HashiCorp repository key
+  apt_key:
+    url: https://apt.releases.hashicorp.com/gpg
+    state: present
+
+- name: Add HashiCorp repository
+  apt_repository:
+    repo: "deb [arch=amd64] https://apt.releases.hashicorp.com {{ ansible_distribution_release }} main"
+    state: present
+
+- name: Install Vault
+  apt:
+    name: vault
+    state: present
+    update_cache: yes
+
+- name: Create Vault data directory
+  file:
+    path: /opt/vault/data
+    state: directory
+    owner: vault
+    group: vault
+    mode: '0750'
+
+- name: Copy Vault configuration
+  template:
+    src: vault.hcl.j2
+    dest: /etc/vault.d/vault.hcl
+    owner: vault
+    group: vault
+    mode: '0640'
+
+- name: Start and enable Vault service
+  systemd:
+    name: vault
+    state: started
+    enabled: yes
+
+- name: Check if Vault is initialized
+  command: vault operator init -status
+  register: vault_init_status
+  ignore_errors: yes
+  environment:
+    VAULT_ADDR: "http://127.0.0.1:8200"
+
+- name: Initialize Vault (if not already done)
+  command: vault operator init -key-shares=1 -key-threshold=1 -format=json
+  register: vault_init_output
+  when: "'uninitialized' in vault_init_status.stdout"
+  environment:
+    VAULT_ADDR: "http://127.0.0.1:8200"
+
+- name: Save initialization output to local file
+  copy:
+    content: "{{ vault_init_output.stdout }}"
+    dest: /root/vault-init.json
+    mode: '0600'
+  when: "'uninitialized' in vault_init_status.stdout"
+
+# In a production context, we would unseal manually or auto-unseal via KMS.
+# Since this is an automated provisioning cycle, we extract the key and unseal.
+- name: Read unseal key
+  shell: cat /root/vault-init.json | grep -oP '"unseal_keys_b64":\["\K[^"]+'
+  register: unseal_key
+  ignore_errors: yes
+
+- name: Unseal Vault
+  command: "vault operator unseal {{ unseal_key.stdout }}"
+  environment:
+    VAULT_ADDR: "http://127.0.0.1:8200"
+  when: unseal_key.stdout is defined and unseal_key.stdout != ""
+  ignore_errors: yes
+
+- name: Read root token
+  shell: cat /root/vault-init.json | grep -oP '"root_token":"\K[^"]+'
+  register: root_token
+  ignore_errors: yes
+
+- name: Enable PKI secrets engine
+  shell: |
+    export VAULT_TOKEN="{{ root_token.stdout }}"
+    vault secrets enable pki
+  environment:
+    VAULT_ADDR: "http://127.0.0.1:8200"
+  ignore_errors: yes
+
+- name: Generate Root CA certificate in Vault
+  shell: |
+    export VAULT_TOKEN="{{ root_token.stdout }}"
+    vault write -format=json pki/root/generate/internal \
+      common_name="Agency Root CA" \
+      ttl=87600h > /root/root_ca.json
+  environment:
+    VAULT_ADDR: "http://127.0.0.1:8200"
+  ignore_errors: yes

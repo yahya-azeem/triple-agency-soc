@@ -1,0 +1,42 @@
+version: '3'
+
+services:
+  frontend:
+    image: ghcr.io/shuffle/shuffle-frontend:latest
+    container_name: shuffle-frontend
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - BACKEND_URL=http://backend:5001
+    links:
+      - backend
+    restart: unless-stopped
+
+  backend:
+    image: ghcr.io/shuffle/shuffle-backend:latest
+    container_name: shuffle-backend
+    ports:
+      - "5001:5001"
+    environment:
+      - SHUFFLE_APP_HOTLOAD_LOCATION=/shuffle-apps
+      - SHUFFLE_APP_HOTLOAD_FOLDER=./shuffle-apps
+      - SHUFFLE_DATABASE_CLOUDSQL=
+      - DATA_PATH=/opt/shuffle/data
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /opt/shuffle/data:/opt/shuffle/data
+    restart: unless-stopped
+
+  orborus:
+    image: ghcr.io/shuffle/shuffle-orborus:latest
+    container_name: shuffle-orborus
+    environment:
+      - SHUFFLE_APP_SDK_TIMEOUT=300
+      - ORBORUS_CONTAINER_NAME=shuffle-orborus
+      - BACKEND_URL=http://backend:5001
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    links:
+      - backend
+    restart: unless-stopped

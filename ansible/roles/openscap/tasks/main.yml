@@ -1,0 +1,35 @@
+---
+- name: Execute OpenSCAP scan on supported systems
+  block:
+    - name: Install OpenSCAP scanner and security guides
+      apt:
+        name:
+          - libopenscap8
+          - ssg-debderived
+          - ssg-base
+        state: present
+      ignore_errors: yes
+
+    - name: Create OpenSCAP report directory
+      file:
+        path: /var/www/html/compliance
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    # Perform compliance scan using DISA STIG profile
+    - name: Execute SCAP Compliance Scan
+      command: >
+        oscap xccdf eval
+        --profile xccdf_org.ssgproject.content_profile_stig
+        --report /var/www/html/compliance/stig-report.html
+        /usr/share/xml/scap/ssg/content/ssg-ubuntu2204-ds.xml
+      register: scap_scan
+      failed_when: false
+      ignore_errors: yes
+
+    - name: Log scan output
+      debug:
+        msg: "Compliance scan finished. Report saved to: /var/www/html/compliance/stig-report.html"
+  when: ansible_os_family != 'Alpine'

@@ -1,0 +1,79 @@
+---
+- name: Download step-cli Debian package
+  get_url:
+    url: https://github.com/smallstep/cli/releases/download/v0.24.4/step-cli_0.24.4_amd64.deb
+    dest: /tmp/step-cli.deb
+    mode: '0644'
+
+- name: Install step-cli
+  apt:
+    deb: /tmp/step-cli.deb
+    state: present
+
+- name: Download step-ca Debian package
+  get_url:
+    url: https://github.com/smallstep/certificates/releases/download/v0.24.2/step-ca_0.24.2_amd64.deb
+    dest: /tmp/step-ca.deb
+    mode: '0644'
+
+- name: Install step-ca
+  apt:
+    deb: /tmp/step-ca.deb
+    state: present
+
+- name: Create step-ca directory
+  file:
+    path: /etc/step-ca
+    state: directory
+    owner: step
+    group: step
+    mode: '0750'
+
+- name: Copy Root CA from Vault server (simulated download)
+  shell: |
+    cat /root/root_ca.json | grep -oP '"certificate":"\K[^"]+' | sed 's/\\n/\n/g' > /etc/step-ca/root_ca.crt
+  args:
+    creates: /etc/step-ca/root_ca.crt
+
+- name: Initialize Step-CA config
+  command: >
+    step ca init --name "Agency Online CA"
+    --dns "core-services.agency.internal"
+    --address ":8443"
+    --provisioner "admin@agency.internal"
+    --password-file /etc/step-ca/password.txt
+    --root /etc/step-ca/root_ca.crt
+    --key /etc/step-ca/root_ca.key
+    --run-as-service
+  args:
+    creates: /root/.step/config/ca.json
+
+- name: Enable ACME provisioner
+  command: step ca provisioner add acme --type ACME
+  ignore_errors: yes
+
+- name: Setup step-ca systemd service
+  copy:
+    content: |
+      [Unit]
+      Description=step-ca service
+      After=network.target
+
+      [Service]
+      Type=simple
+      User=root
+      Environment=STEPPATH=/root/.step
+      ExecStart=/usr/bin/step-ca /root/.step/config/ca.json --password-file=/etc/step-ca/password.txt
+      Restart=on-failure
+
+      [Install]
+      WantedBy=multi-user.target
+    dest: /etc/systemd/system/step-ca.service
+    mode: '0644'
+
+- name: Start step-ca
+  systemd:
+    name: step-ca
+    state: started
+    enabled: yes
+    daemon_reload: yes

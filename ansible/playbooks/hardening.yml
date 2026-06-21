@@ -1,0 +1,7 @@
+---
+- name: Apply DISA STIG compliance and security scanning
+  hosts: linux_nodes
+  become: yes
+  roles:
+    - role: stig-hardening
+    - role: openscap

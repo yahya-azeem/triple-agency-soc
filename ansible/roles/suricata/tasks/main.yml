@@ -1,0 +1,32 @@
+---
+- name: Add Suricata PPA repository
+  apt_repository:
+    repo: ppa:oisf/suricata-stable
+    state: present
+
+- name: Install Suricata
+  apt:
+    name:
+      - suricata
+      - jq
+    state: present
+    update_cache: yes
+
+- name: Copy Suricata configuration template
+  template:
+    src: suricata.yaml.j2
+    dest: /etc/suricata/suricata.yaml
+    owner: root
+    group: root
+    mode: '0640'
+  notify: Restart suricata
+
+- name: Update Suricata rules
+  command: suricata-update
+  ignore_errors: yes
+
+- name: Start and enable Suricata
+  systemd:
+    name: suricata
+    state: started
+    enabled: yes

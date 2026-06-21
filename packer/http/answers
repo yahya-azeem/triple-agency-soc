@@ -1,0 +1,16 @@
+KEYMAPOPTS="us us"
+HOSTNAMEOPTS="-n alpine-golden"
+INTERFACESOPTS="auto lo
+iface lo inet loopback
+
+auto eth0
+iface eth0 inet dhcp"
+DNSOPTS="-d agency.internal 1.1.1.1 8.8.8.8"
+TIMEZONEOPTS="-z UTC"
+PROXYOPTS="none"
+APKREPOSOPTS="-r"
+SSHDOPTS="-c openssh"
+NTPOPTS="-c chrony"
+DISKOPTS="-m sys /dev/sda"
+LBUOPTS="none"
+APKCACHEOPTS="none"

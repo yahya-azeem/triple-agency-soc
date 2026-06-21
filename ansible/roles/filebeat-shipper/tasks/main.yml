@@ -1,0 +1,73 @@
+---
+- name: Install Filebeat package
+  apt:
+    name: filebeat
+    state: present
+    update_cache: yes
+
+- name: Create Filebeat certs directory
+  file:
+    path: /etc/filebeat/certs
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'
+
+# Obtain client certificate from Step-CA ACME server for mTLS authentication
+- name: Request client certificate for Filebeat
+  shell: |
+    step ca certificate "filebeat.agency.internal" \
+      /etc/filebeat/certs/filebeat.crt /etc/filebeat/certs/filebeat.key \
+      --provisioner-password-file /etc/step-ca/password.txt \
+      --ca-url https://core-services.agency.internal:8443 \
+      --root /etc/step-ca/root_ca.crt
+  ignore_errors: yes
+
+- name: Copy Root CA cert to Filebeat certs dir
+  copy:
+    src: /etc/step-ca/root_ca.crt
+    dest: /etc/filebeat/certs/ca.crt
+    remote_src: yes
+  ignore_errors: yes
+
+- name: Copy Filebeat configuration file
+  template:
+    src: filebeat.yml.j2
+    dest: /etc/filebeat/filebeat.yml
+    owner: root
+    group: root
+    mode: '0640'
+  notify: Restart filebeat
+
+- name: Enable Zeek and Suricata modules in Filebeat
+  command: filebeat modules enable zeek suricata
+
+- name: Configure Zeek Filebeat Module path
+  copy:
+    content: |
+      - module: zeek
+        connection:
+          enabled: true
+          var.paths: ["/opt/zeek/logs/current/conn.log"]
+        dns:
+          enabled: true
+          var.paths: ["/opt/zeek/logs/current/dns.log"]
+        http:
+          enabled: true
+          var.paths: ["/opt/zeek/logs/current/http.log"]
+    dest: /etc/filebeat/modules.d/zeek.yml
+
+- name: Configure Suricata Filebeat Module path
+  copy:
+    content: |
+      - module: suricata
+        eve:
+          enabled: true
+          var.paths: ["/var/log/suricata/eve.json"]
+    dest: /etc/filebeat/modules.d/suricata.yml
+
+- name: Start and enable Filebeat service
+  systemd:
+    name: filebeat
+    state: started
+    enabled: yes

@@ -1,0 +1,54 @@
+# GitIgnore for Elite IaC SOC repository
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+_override.tf
+_override.tf.json
+
+# Packer
+packer_cache/
+*.box
+
+# Ansible
+*.retry
+*.log
+.ansible_cache
+vault-init.json
+root_ca.json
+
+# Keys and Certificates
+*.pem
+*.key
+*.crt
+*.csr
+*.pfx
+*.p12
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+ENV/
+env/
+
+# OS/IDE
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local build artifacts
+detections/compiled-rules/*.json
+var/
+tmp/

@@ -1,0 +1,11 @@
+---
+- name: Apply CAT I Critical Controls
+  include_tasks: cat1-critical.yml
+
+- name: Apply CAT II High Controls
+  include_tasks: cat2-high.yml
+  when: ansible_os_family != 'Alpine'
+
+- name: Apply Immutable Auditd Logging
+  include_tasks: auditd-immutable.yml
+  when: ansible_os_family != 'Alpine'

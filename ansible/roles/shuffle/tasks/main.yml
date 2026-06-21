@@ -1,0 +1,54 @@
+---
+- name: Install dependencies for Docker
+  apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+    state: present
+    update_cache: yes
+
+- name: Add Docker GPG key
+  apt_key:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    state: present
+
+- name: Add Docker APT repository
+  apt_repository:
+    repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+    state: present
+
+- name: Install Docker Engine
+  apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-compose-plugin
+    state: present
+
+- name: Create Shuffle directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - /opt/shuffle
+    - /opt/shuffle/data
+
+- name: Copy Shuffle docker-compose file
+  template:
+    src: docker-compose.yml.j2
+    dest: /opt/shuffle/docker-compose.yml
+    owner: root
+    group: root
+    mode: '0640'
+
+- name: Start Shuffle SOAR stack
+  command: docker compose up -d
+  args:
+    chdir: /opt/shuffle

@@ -1,0 +1,23 @@
+---
+# Active Directory Domain Controller Promotion Task
+
+- name: Install Active Directory Domain Services Feature
+  win_feature:
+    name: AD-Domain-Services
+    state: present
+    include_management_tools: yes
+  register: ad_role_install
+
+- name: Promote Server to Domain Controller (Forest Root)
+  microsoft.ad.domain:
+    dns_domain_name: "agency.internal"
+    safe_mode_administrator_password: "SafeModePassword123!"
+    database_path: "C:\\Windows\\NTDS"
+    log_path: "C:\\Windows\\NTDS"
+    sysvol_path: "C:\\Windows\\SYSVOL"
+  register: domain_promotion
+
+- name: Reboot Domain Controller after promotion
+  win_reboot:
+    reboot_timeout: 600
+  when: domain_promotion.reboot_required
